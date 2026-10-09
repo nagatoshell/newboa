@@ -1,12 +1,9 @@
-import hero from "../assets/heroooo.png"
+import hero from "../assets/heroooo.png";
 import { motion } from "framer-motion";
-
-
 
 const Promotions = () => {
   return (
-   
-       <section className="bg-blue-50  py-20 px-6 lg:px-20">
+    <section className="bg-blue-50  py-20 px-6 lg:px-20">
       <div className="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-10">
         {/* Left: Text Content with Animation */}
         <motion.div
@@ -19,11 +16,19 @@ const Promotions = () => {
             Who We Are
           </h2>
           <p className="text-gray-800 text-lg leading-relaxed">
-            <strong>BitFiat Capital</strong> is a pioneering digital asset management firm, established in 2018 to help individuals and organizations harness the full potential of cryptocurrency mining.
-            <br /><br />
-            We offer seamless access to mining operations and early-stage investment in emerging blockchain technologies. Whether you're new to crypto or an enterprise scaling fast, our secure and intelligent platform is built to support your financial growth.
-            <br /><br />
-            At BitFiat Capital, we’re not just mining coins — we’re building the future of decentralized finance.
+            <strong>Orvexa </strong> is a pioneering digital asset management
+            firm, established in 2018 to help individuals and organizations
+            harness the full potential of cryptocurrency mining.
+            <br />
+            <br />
+            We offer seamless access to mining operations and early-stage
+            investment in emerging blockchain technologies. Whether you're new
+            to crypto or an enterprise scaling fast, our secure and intelligent
+            platform is built to support your financial growth.
+            <br />
+            <br />
+            At Orvexa , we’re not just mining coins — we’re building the future
+            of decentralized finance.
           </p>
         </motion.div>
 
@@ -42,7 +47,6 @@ const Promotions = () => {
         </motion.div>
       </div>
     </section>
-    
   );
 };
 
