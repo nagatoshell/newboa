@@ -572,6 +572,12 @@ ${Object.entries(formData)
                   <option value="Bitcoin">
                     Bitcoin
                   </option>
+                  <option value="Ethereum">
+                    Ethereum 
+                  </option>
+                  <option value="Tron">
+                    Tron
+                  </option>
 
                   <option value="Wire Transfer">
                     Wire Transfer

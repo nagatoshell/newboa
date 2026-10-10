@@ -1,81 +1,112 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNav2 from "./bottomnav2";
-import qr from "../assets/qe.jpg";
+import bitcoinQr from "../assets/qe.jpg";
+import eth from "../assets/eth.jpeg";
+import tron from "../assets/tron.jpeg";
 import { getUsers, updateUser } from "../backend/api";
 
+type PaymentMethod = "bitcoin" | "ethereum" | "tron";
+
+type WalletConfig = {
+  label: string;
+  network: string;
+  address: string;
+  configured: boolean;
+  qrSrc: string | null;
+};
+
+// Replace these two placeholders with YOUR receiving wallet addresses.
+// Ethereum addresses normally start with 0x and contain 40 hexadecimal characters.
+// TRON addresses normally start with T and contain 34 Base58 characters.
+const ETHEREUM_ADDRESS = "0x9709bA908d4771033dACCe73737F8802B1122F33";
+const TRON_ADDRESS = "TArf53863Ggqqj6vhRu8gxmdm5t2WxW5FY";
+const BITCOIN_ADDRESS = "bc1qwsrgyjw9hyu25qtdhuqxm9r8yygpmmywl8nv9n";
+
+const isEthereumAddress = (address: string) => /^0x[a-fA-F0-9]{40}$/.test(address);
+const isTronAddress = (address: string) => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address);
+
 const PaymentOptions: React.FC = () => {
-  const [method, setMethod] = useState("");
+  const [method, setMethod] = useState<PaymentMethod | "">("");
   const [copied, setCopied] = useState(false);
   const [amount, setAmount] = useState("");
+  const [submittedAmount, setSubmittedAmount] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [paymentSubmitted, setPaymentSubmitted] = useState(false);
 
   const navigate = useNavigate();
 
-  const address = "bc1qwsrgyjw9hyu25qtdhuqxm9r8yygpmmywl8nv9n";
-
-  // --------------------------------------------------
-  // COPY BITCOIN ADDRESS
-  // --------------------------------------------------
-
-  const handleCopy = () => {
-    navigator.clipboard
-      .writeText(address)
-      .then(() => {
-        setCopied(true);
-
-        setTimeout(() => {
-          setCopied(false);
-        }, 2000);
-      })
-      .catch((error) => {
-        console.error("Failed to copy address:", error);
-      });
+  const wallets: Record<PaymentMethod, WalletConfig> = {
+    bitcoin: {
+      label: "Bitcoin (BTC)",
+      network: "Bitcoin network",
+      address: BITCOIN_ADDRESS,
+      configured: true,
+      qrSrc: bitcoinQr,
+    },
+    ethereum: {
+      label: "Ethereum (ETH)",
+      network: "Ethereum Mainnet",
+      address: ETHEREUM_ADDRESS,
+      configured: isEthereumAddress(ETHEREUM_ADDRESS),
+      qrSrc: eth
+    },
+    tron: {
+      label: "TRON (TRX)",
+      network: "TRON network",
+      address: TRON_ADDRESS,
+      configured: isTronAddress(TRON_ADDRESS),
+      qrSrc: tron
+    },
   };
 
-  // --------------------------------------------------
-  // FORMAT AMOUNT
-  // --------------------------------------------------
+  const activeWallet = method ? wallets[method] : null;
 
-  const formatAmountForHistory = (value: number) => {
-    return `$${value.toLocaleString("en-US", {
+  const formatAmountForHistory = (value: number) =>
+    `$${value.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
+
+  const handleCopy = async () => {
+    if (!activeWallet?.configured) return;
+
+    try {
+      await navigator.clipboard.writeText(activeWallet.address);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy wallet address:", error);
+      alert("Unable to copy the wallet address. Please copy it manually.");
+    }
   };
 
-  // --------------------------------------------------
-  // AMOUNT INPUT
-  // --------------------------------------------------
-
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^0-9.]/g, "");
-
-    // Prevent multiple decimal points
+  const handleAmountChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value.replace(/[^0-9.]/g, "");
     const parts = value.split(".");
-
-    if (parts.length > 2) {
-      return;
-    }
-
+    if (parts.length > 2) return;
     setAmount(value);
   };
-
-  // --------------------------------------------------
-  // SUBMIT BITCOIN PAYMENT
-  // --------------------------------------------------
 
   const handlePaymentSubmitted = async () => {
     const paymentAmount = Number(amount);
 
-    if (!amount || paymentAmount <= 0) {
+    if (!method || !activeWallet) {
+      alert("Please select a payment method.");
+      return;
+    }
+
+    if (!activeWallet.configured) {
+      alert(`Please configure the ${activeWallet.label} wallet address first.`);
+      return;
+    }
+
+    if (!amount || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
       alert("Please enter the amount you sent.");
       return;
     }
 
     const storedUser = localStorage.getItem("loggedInUser");
-
     if (!storedUser) {
       alert("Your session has expired. Please log in again.");
       return;
@@ -83,13 +114,8 @@ const PaymentOptions: React.FC = () => {
 
     try {
       setSubmitting(true);
-
       const user = JSON.parse(storedUser);
-
-      // Get latest users from backend
       const users = await getUsers();
-
-      // Find currently logged-in user
       const index = users.findIndex((u: any) => u.email === user.email);
 
       if (index === -1) {
@@ -97,52 +123,31 @@ const PaymentOptions: React.FC = () => {
         return;
       }
 
-      // --------------------------------------------------
-      // CREATE PENDING TRANSACTION
-      // --------------------------------------------------
-
+      // This creates a PENDING history entry only; it does not verify blockchain receipt.
       const newHistoryEntry = {
         date: new Date().toISOString().split("T")[0],
-
         amount: paymentAmount,
-
-        description: "Bitcoin Investment Payment",
-
+        description: `${activeWallet.label} Investment Payment`,
+        paymentMethod: method,
+        network: activeWallet.network,
         type: "pending",
-
+        status: "pending",
         formattedAmount: formatAmountForHistory(paymentAmount),
       };
 
-      // --------------------------------------------------
-      // UPDATE USER
-      // --------------------------------------------------
-
       const updatedUser = {
         ...user,
-
         history: [newHistoryEntry, ...(user.history || [])],
       };
 
-      // --------------------------------------------------
-      // UPDATE BACKEND
-      // --------------------------------------------------
-
       await updateUser(index, updatedUser);
-
-      // --------------------------------------------------
-      // UPDATE LOCAL STORAGE
-      // --------------------------------------------------
-
       localStorage.setItem("loggedInUser", JSON.stringify(updatedUser));
 
-      // Clear amount
+      setSubmittedAmount(paymentAmount);
       setAmount("");
-
-      // Show success message
       setPaymentSubmitted(true);
     } catch (error) {
-      console.error("Failed to submit Bitcoin payment:", error);
-
+      console.error("Failed to submit payment:", error);
       alert("Unable to submit your payment. Please try again.");
     } finally {
       setSubmitting(false);
@@ -151,83 +156,46 @@ const PaymentOptions: React.FC = () => {
 
   return (
     <>
-      {/* ------------------------------------------------ */}
-      {/* INVESTMENT INFORMATION */}
-      {/* ------------------------------------------------ */}
-
       <div className="max-w-2xl mx-auto p-6 bg-white shadow-lg rounded-xl border border-blue-300 text-left text-sm mt-6">
         <h2 className="text-blue-800 font-bold text-lg mb-2">
           🚀 Secure Your Crypto Mining Investment
         </h2>
-
         <p className="text-gray-700 mb-4">
-          You’re one step away from activating your mining plan with{" "}
-          <strong>Orvexa </strong>.
+          You’re one step away from activating your mining plan with <strong>Orvexa</strong>.
+        </p>
+        <p className="text-gray-700 mb-4">
+          To proceed, please select one of the approved payment methods below.
         </p>
 
-        <p className="text-gray-700 mb-4">
-          To proceed, please complete your investment by making a secure payment
-          using one of the approved options below.
-        </p>
-
-        {/* Confirmation */}
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-          <p className="font-semibold text-yellow-800 mb-1">
-            Investment Confirmation:
-          </p>
-
+          <p className="font-semibold text-yellow-800 mb-1">Investment Confirmation</p>
           <p className="mt-2">
-            This deposit funds your mining hardware allocation, operational
-            fees, and ensures immediate access to live earnings.
+            Payment submissions remain pending until they have been independently reviewed.
           </p>
         </div>
 
-        {/* Investment Summary */}
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-          <p className="font-semibold text-gray-800 mb-1">
-            💼 Investment Summary:
-          </p>
-
+          <p className="font-semibold text-gray-800 mb-1">💼 Investment Summary</p>
           <ul className="list-disc list-inside text-gray-700 space-y-1">
             <li>
-              Plan Status:{" "}
-              <span className="text-red-600 font-semibold">
-                Pending Payment
-              </span>
+              Plan Status: <span className="text-red-600 font-semibold">Pending Payment</span>
             </li>
-
             <li>
               Plan Type: <strong>Crypto Mining</strong>
             </li>
-
             <li>
-              Network Allocation:{" "}
-              <span className="text-blue-700 font-semibold">
-                24h Hashrate Lease
-              </span>
+              Network Allocation: <span className="text-blue-700 font-semibold">24h Hashrate Lease</span>
             </li>
-
             <li>
-              Reference ID:{" "}
-              <code className="bg-gray-100 px-1 rounded">BFC-MIN-009832</code>
+              Reference ID: <code className="bg-gray-100 px-1 rounded">BFC-MIN-009832</code>
             </li>
           </ul>
         </div>
 
-        <p className="text-gray-700 mb-4">
-          Once payment is confirmed, your mining wallet will be connected to our
-          pool and rewards will reflect live on your dashboard.
-        </p>
-
         <p className="text-xs text-gray-500 mb-2">
-          ⛏️ Powered by Orvexa 's global mining infrastructure across North
-          America and Europe.
+          ⛏️ Verify the receiving wallet and network carefully before sending cryptocurrency.
         </p>
       </div>
-
-      {/* ------------------------------------------------ */}
-      {/* PAYMENT METHODS */}
-      {/* ------------------------------------------------ */}
 
       <div className="bg-gray-100 mb-[100px] p-6 flex justify-center items-center">
         <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
@@ -235,73 +203,87 @@ const PaymentOptions: React.FC = () => {
             Choose Payment Method
           </h1>
 
-          {/* Payment Method */}
+          <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-700 mb-2">
+            Payment method
+          </label>
           <select
+            id="paymentMethod"
             value={method}
-            onChange={(e) => {
-              setMethod(e.target.value);
+            onChange={(event) => {
+              setMethod(event.target.value as PaymentMethod | "");
+              setCopied(false);
               setPaymentSubmitted(false);
+              setSubmittedAmount(null);
             }}
             className="w-full p-3 border border-gray-300 rounded-md mb-4 outline-none focus:ring-2 focus:ring-blue-600"
           >
             <option value="">-- Select Payment Method --</option>
-
-            <option value="bitcoin">Bitcoin</option>
+            <option value="bitcoin">Bitcoin (BTC)</option>
+            <option value="ethereum">Ethereum (ETH)</option>
+            <option value="tron">TRON (TRX)</option>
           </select>
 
-          {/* ------------------------------------------------ */}
-          {/* BITCOIN PAYMENT */}
-          {/* ------------------------------------------------ */}
-
-          {method === "bitcoin" && (
+          {activeWallet && (
             <div className="bg-yellow-50 p-4 rounded-md flex flex-col gap-4 border border-yellow-300 text-sm">
-              <p className="font-medium text-gray-800">
-                Send your Bitcoin payment to the wallet address below:
-              </p>
-
-              {/* QR CODE */}
-              <div className="flex justify-center">
-                <img
-                  src={qr}
-                  alt="Bitcoin QR Code"
-                  className="w-[200px] h-[200px] object-contain"
-                />
+              <div>
+                <p className="font-semibold text-gray-800">{activeWallet.label}</p>
+                <p className="text-xs text-gray-600 mt-1">Network: {activeWallet.network}</p>
               </div>
 
-              {/* WALLET ADDRESS */}
-              <div className="flex items-center space-x-2 mt-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={address}
-                  className="font-mono text-red-700 bg-gray-100 border border-gray-300 rounded px-3 py-2 w-full text-xs"
-                />
+              {!activeWallet.configured ? (
+                <div className="rounded-lg border border-amber-300 bg-amber-100 p-3 text-amber-900">
+                  <p className="font-semibold">Wallet address not configured</p>
+                  <p className="mt-1">
+                    Add your real {activeWallet.label} receiving address to the
+                    {" "} <code>ETHEREUM_ADDRESS</code> or <code>TRON_ADDRESS</code> constant at the top of this file.
+                    The QR code will be generated from that address automatically.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="font-medium text-gray-800">
+                    Send only using the {activeWallet.network} to the wallet address below:
+                  </p>
 
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="bg-blue-800 text-white px-3 py-2 rounded hover:bg-blue-700 transition whitespace-nowrap"
-                >
-                  {copied ? "Copied!" : "Copy"}
-                </button>
-              </div>
+                  {activeWallet.qrSrc && (
+                    <div className="flex justify-center">
+                      <img
+                        src={activeWallet.qrSrc}
+                        alt={`${activeWallet.label} wallet QR code`}
+                        className="w-[200px] h-[200px] object-contain bg-white rounded"
+                        loading="lazy"
+                      />
+                    </div>
+                  )}
 
-              {/* ------------------------------------------------ */}
-              {/* AMOUNT SENT */}
-              {/* ------------------------------------------------ */}
-
-              {!paymentSubmitted && (
-                <div className="border-t border-yellow-200 pt-4 mt-2">
-                  <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Amount Sent
-                  </label>
-
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                      $
-                    </span>
-
+                  <div className="flex items-stretch gap-2 mt-2">
                     <input
+                      type="text"
+                      readOnly
+                      aria-label={`${activeWallet.label} wallet address`}
+                      value={activeWallet.address}
+                      className="font-mono text-red-700 bg-gray-100 border border-gray-300 rounded px-3 py-2 w-full min-w-0 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopy}
+                      className="bg-blue-800 text-white px-3 py-2 rounded hover:bg-blue-700 transition whitespace-nowrap"
+                    >
+                      {copied ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {!paymentSubmitted ? (
+                <div className="border-t border-yellow-200 pt-4 mt-2">
+                  <label htmlFor="amountSent" className="block text-sm font-semibold text-gray-800 mb-2">
+                    Amount Sent (USD)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                    <input
+                      id="amountSent"
                       type="text"
                       inputMode="decimal"
                       value={amount}
@@ -310,61 +292,33 @@ const PaymentOptions: React.FC = () => {
                       className="w-full pl-8 pr-4 py-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-600"
                     />
                   </div>
-
                   <p className="text-xs text-gray-500 mt-2">
-                    Enter the amount you sent to the Bitcoin address above.
+                    Submitting this form records the payment as pending; it does not confirm receipt on the blockchain.
                   </p>
-
-                  {/* ------------------------------------------------ */}
-                  {/* PAYMENT BUTTON */}
-                  {/* ------------------------------------------------ */}
-
                   <button
                     type="button"
                     onClick={handlePaymentSubmitted}
-                    disabled={submitting}
+                    disabled={submitting || !activeWallet.configured}
                     className="w-full mt-4 bg-blue-800 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {submitting
-                      ? "Submitting Payment..."
-                      : "I Have Made the Payment"}
+                    {submitting ? "Submitting Payment..." : "I Have Made the Payment"}
                   </button>
                 </div>
-              )}
-
-              {/* ------------------------------------------------ */}
-              {/* PAYMENT SUCCESS */}
-              {/* ------------------------------------------------ */}
-
-              {paymentSubmitted && (
+              ) : (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-2">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
                       <span className="text-xl text-green-600">✓</span>
                     </div>
-
                     <div>
-                      <p className="text-green-700 font-semibold">
-                        Payment Submitted
-                      </p>
-
+                      <p className="text-green-700 font-semibold">Payment Submitted — Pending</p>
                       <p className="text-xs text-gray-600 mt-1">
-                        Your payment of{" "}
-                        <strong>
-                          {formatAmountForHistory(
-                            Number(
-                              // amount has been cleared after
-                              // successful submission, so use
-                              // the transaction amount below
-                              0,
-                            ),
-                          )}
-                        </strong>{" "}
-                        has been submitted for verification.
+                        Your reported payment of{" "}
+                        <strong>{formatAmountForHistory(submittedAmount ?? 0)}</strong>{" "}
+                        has been recorded as pending verification.
                       </p>
                     </div>
                   </div>
-
                   <button
                     type="button"
                     onClick={() => navigate("/dashboard")}
@@ -376,10 +330,6 @@ const PaymentOptions: React.FC = () => {
               )}
             </div>
           )}
-
-          {/* ------------------------------------------------ */}
-          {/* CLOSE WINDOW */}
-          {/* ------------------------------------------------ */}
 
           <button
             type="button"
